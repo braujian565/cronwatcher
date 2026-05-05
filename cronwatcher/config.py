@@ -1,71 +1,81 @@
-"""Configuration loader for cronwatcher daemon."""
+"""Configuration loading for cronwatcher."""
+
+from __future__ import annotations
 
 import os
-import yaml
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List, Optional
+
+import yaml
 
 
 @dataclass
 class JobConfig:
     name: str
-    schedule: str
-    timeout: int = 300
-    alert_on_failure: bool = True
-    alert_on_timeout: bool = True
-    notify: List[str] = field(default_factory=list)
+    command: str
+    timeout: int = 60
+    enabled: bool = True
 
 
 @dataclass
 class AlertConfig:
     email: Optional[str] = None
-    webhook_url: Optional[str] = None
-    slack_channel: Optional[str] = None
+    on_consecutive_failures: int = 1
+    # SMTP settings (can also come from env vars)
+    smtp_host: str = "localhost"
+    smtp_port: int = 25
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        # Allow env-var overrides so secrets stay out of config files
+        self.smtp_host = os.environ.get("CRONWATCHER_SMTP_HOST", self.smtp_host)
+        self.smtp_port = int(os.environ.get("CRONWATCHER_SMTP_PORT", self.smtp_port))
+        self.smtp_user = os.environ.get("CRONWATCHER_SMTP_USER", self.smtp_user)
+        self.smtp_password = os.environ.get("CRONWATCHER_SMTP_PASSWORD", self.smtp_password)
 
 
 @dataclass
 class AppConfig:
-    log_level: str = "INFO"
-    log_file: str = "/var/log/cronwatcher.log"
-    state_dir: str = "/var/lib/cronwatcher"
     jobs: List[JobConfig] = field(default_factory=list)
-    alerts: AlertConfig = field(default_factory=AlertConfig)
+    alert: AlertConfig = field(default_factory=AlertConfig)
+    store_path: str = "/var/lib/cronwatcher/jobs.json"
+    log_level: str = "INFO"
 
 
-def load_config(path: str) -> AppConfig:
-    """Load and parse configuration from a YAML file."""
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Config file not found: {path}")
+def load_config(path: str | Path) -> AppConfig:
+    """Load and validate configuration from a YAML file."""
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"Config file not found: {p}")
 
-    with open(path, "r") as f:
-        raw = yaml.safe_load(f)
+    raw = p.read_text(encoding="utf-8")
+    data: dict = yaml.safe_load(raw) or {}
 
-    if raw is None:
-        raise ValueError("Config file is empty or invalid YAML")
-
-    alerts_raw = raw.get("alerts", {})
-    alerts = AlertConfig(
-        email=alerts_raw.get("email"),
-        webhook_url=alerts_raw.get("webhook_url"),
-        slack_channel=alerts_raw.get("slack_channel"),
+    alert_data = data.get("alert", {})
+    alert = AlertConfig(
+        email=alert_data.get("email"),
+        on_consecutive_failures=alert_data.get("on_consecutive_failures", 1),
+        smtp_host=alert_data.get("smtp_host", "localhost"),
+        smtp_port=int(alert_data.get("smtp_port", 25)),
+        smtp_user=alert_data.get("smtp_user"),
+        smtp_password=alert_data.get("smtp_password"),
     )
 
     jobs = [
         JobConfig(
             name=j["name"],
-            schedule=j["schedule"],
-            timeout=j.get("timeout", 300),
-            alert_on_failure=j.get("alert_on_failure", True),
-            alert_on_timeout=j.get("alert_on_timeout", True),
-            notify=j.get("notify", []),
+            command=j["command"],
+            timeout=j.get("timeout", 60),
+            enabled=j.get("enabled", True),
         )
-        for j in raw.get("jobs", [])
+        for j in data.get("jobs", [])
     ]
 
     return AppConfig(
-        log_level=raw.get("log_level", "INFO"),
-        log_file=raw.get("log_file", "/var/log/cronwatcher.log"),
-        state_dir=raw.get("state_dir", "/var/lib/cronwatcher"),
         jobs=jobs,
-        alerts=alerts,
+        alert=alert,
+        store_path=data.get("store_path", "/var/lib/cronwatcher/jobs.json"),
+        log_level=data.get("log_level", "INFO"),
     )
