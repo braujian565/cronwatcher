@@ -1,42 +1,44 @@
 # cronwatcher example configuration
+# Copy to config.yaml and adjust as needed.
 
-store_path: /var/lib/cronwatcher/jobs.json
-check_interval: 60
-
-# Default channels used when a job does not specify notify_channels.
-# Available built-in channels: log, email
-default_notify_channels:
-  - log
-  - email
+store_path: /var/lib/cronwatcher/state.json
+log_level: INFO
+check_interval: 60          # seconds between scheduler ticks
+digest_schedule: "0 8 * * *" # send daily digest at 08:00 (optional)
 
 alert:
+  email_to: ops@example.com
+  email_from: cronwatcher@example.com
   smtp_host: smtp.example.com
   smtp_port: 587
-  smtp_user: alerts@example.com
-  smtp_password: "s3cr3t"
-  from_address: alerts@example.com
-  to_addresses:
-    - ops@example.com
+  smtp_user: cronwatcher@example.com
+  smtp_password: secret
 
 jobs:
-  - name: daily-backup
-    command: /usr/local/bin/backup.sh
-    schedule: "0 2 * * *"
+  - name: backup-db
+    command: /usr/local/bin/backup-db.sh
+    schedule: "0 2 * * *"   # daily at 02:00
     timeout: 300
     alert_on_failure: true
-    notify_channels:
-      - email
-      - log
+    retry_attempts: 2
+    retry_delay: 30          # seconds between retries
+
+  - name: sync-files
+    command: rsync -av /src/ /dst/
+    schedule: "*/15 * * * *" # every 15 minutes
+    timeout: 60
+    alert_on_failure: true
+    retry_attempts: 3
+    retry_delay: 10
 
   - name: health-check
     command: curl -sf https://example.com/health
-    schedule: "*/5 * * * *"
-    timeout: 10
+    schedule: "* * * * *"   # every minute
     alert_on_failure: true
-    # Uses default_notify_channels when omitted
+    retry_attempts: 1
+    retry_delay: 5
 
   - name: cleanup-tmp
     command: find /tmp -mtime +7 -delete
-    schedule: "30 3 * * 0"
-    timeout: 120
+    schedule: "0 3 * * 0"   # weekly on Sunday at 03:00
     alert_on_failure: false
