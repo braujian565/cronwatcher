@@ -1,37 +1,42 @@
-# cronwatcher configuration file
-# Copy this file to /etc/cronwatcher/config.yaml and adjust as needed.
+# cronwatcher example configuration
 
-log_level: INFO
-log_file: /var/log/cronwatcher.log
-state_dir: /var/lib/cronwatcher
+store_path: /var/lib/cronwatcher/jobs.json
+check_interval: 60
 
-alerts:
-  email: ops@example.com
-  webhook_url: https://hooks.example.com/alert
-  slack_channel: "#ops-alerts"
+# Default channels used when a job does not specify notify_channels.
+# Available built-in channels: log, email
+default_notify_channels:
+  - log
+  - email
+
+alert:
+  smtp_host: smtp.example.com
+  smtp_port: 587
+  smtp_user: alerts@example.com
+  smtp_password: "s3cr3t"
+  from_address: alerts@example.com
+  to_addresses:
+    - ops@example.com
 
 jobs:
-  - name: daily_backup
+  - name: daily-backup
+    command: /usr/local/bin/backup.sh
     schedule: "0 2 * * *"
-    timeout: 3600
+    timeout: 300
     alert_on_failure: true
-    alert_on_timeout: true
-    notify:
+    notify_channels:
       - email
-      - slack
+      - log
 
-  - name: hourly_sync
-    schedule: "0 * * * *"
+  - name: health-check
+    command: curl -sf https://example.com/health
+    schedule: "*/5 * * * *"
+    timeout: 10
+    alert_on_failure: true
+    # Uses default_notify_channels when omitted
+
+  - name: cleanup-tmp
+    command: find /tmp -mtime +7 -delete
+    schedule: "30 3 * * 0"
     timeout: 120
-    alert_on_failure: true
-    alert_on_timeout: false
-    notify:
-      - webhook
-
-  - name: weekly_report
-    schedule: "0 8 * * 1"
-    timeout: 600
-    alert_on_failure: true
-    alert_on_timeout: true
-    notify:
-      - email
+    alert_on_failure: false

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import List, Optional
 
 import yaml
@@ -14,26 +13,24 @@ import yaml
 class JobConfig:
     name: str
     command: str
+    schedule: str  # cron expression
     timeout: int = 60
-    enabled: bool = True
+    alert_on_failure: bool = True
+    notify_channels: List[str] = field(default_factory=lambda: ["log"])
 
 
 @dataclass
 class AlertConfig:
-    email: Optional[str] = None
-    on_consecutive_failures: int = 1
-    # SMTP settings (can also come from env vars)
-    smtp_host: str = "localhost"
-    smtp_port: int = 25
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
+    from_address: Optional[str] = None
+    to_addresses: List[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        # Allow env-var overrides so secrets stay out of config files
-        self.smtp_host = os.environ.get("CRONWATCHER_SMTP_HOST", self.smtp_host)
-        self.smtp_port = int(os.environ.get("CRONWATCHER_SMTP_PORT", self.smtp_port))
-        self.smtp_user = os.environ.get("CRONWATCHER_SMTP_USER", self.smtp_user)
-        self.smtp_password = os.environ.get("CRONWATCHER_SMTP_PASSWORD", self.smtp_password)
+        if isinstance(self.to_addresses, str):
+            self.to_addresses = [self.to_addresses]
 
 
 @dataclass
@@ -41,41 +38,43 @@ class AppConfig:
     jobs: List[JobConfig] = field(default_factory=list)
     alert: AlertConfig = field(default_factory=AlertConfig)
     store_path: str = "/var/lib/cronwatcher/jobs.json"
-    log_level: str = "INFO"
+    check_interval: int = 60
+    default_notify_channels: List[str] = field(default_factory=lambda: ["log"])
 
 
-def load_config(path: str | Path) -> AppConfig:
+def load_config(path: str) -> AppConfig:
     """Load and validate configuration from a YAML file."""
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"Config file not found: {p}")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Config file not found: {path}")
 
-    raw = p.read_text(encoding="utf-8")
-    data: dict = yaml.safe_load(raw) or {}
+    with open(path, "r", encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
 
-    alert_data = data.get("alert", {})
-    alert = AlertConfig(
-        email=alert_data.get("email"),
-        on_consecutive_failures=alert_data.get("on_consecutive_failures", 1),
-        smtp_host=alert_data.get("smtp_host", "localhost"),
-        smtp_port=int(alert_data.get("smtp_port", 25)),
-        smtp_user=alert_data.get("smtp_user"),
-        smtp_password=alert_data.get("smtp_password"),
-    )
+    if not raw:
+        return AppConfig()
 
-    jobs = [
-        JobConfig(
-            name=j["name"],
-            command=j["command"],
-            timeout=j.get("timeout", 60),
-            enabled=j.get("enabled", True),
+    alert_raw = raw.get("alert", {})
+    alert_cfg = AlertConfig(**{k: v for k, v in alert_raw.items() if k in AlertConfig.__dataclass_fields__})
+
+    default_channels = raw.get("default_notify_channels", ["log"])
+
+    jobs: List[JobConfig] = []
+    for j in raw.get("jobs", []):
+        jobs.append(
+            JobConfig(
+                name=j["name"],
+                command=j["command"],
+                schedule=j["schedule"],
+                timeout=j.get("timeout", 60),
+                alert_on_failure=j.get("alert_on_failure", True),
+                notify_channels=j.get("notify_channels", default_channels),
+            )
         )
-        for j in data.get("jobs", [])
-    ]
 
     return AppConfig(
         jobs=jobs,
-        alert=alert,
-        store_path=data.get("store_path", "/var/lib/cronwatcher/jobs.json"),
-        log_level=data.get("log_level", "INFO"),
+        alert=alert_cfg,
+        store_path=raw.get("store_path", "/var/lib/cronwatcher/jobs.json"),
+        check_interval=raw.get("check_interval", 60),
+        default_notify_channels=default_channels,
     )
