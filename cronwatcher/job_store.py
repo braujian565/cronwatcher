@@ -35,13 +35,20 @@ class JobStore:
     def _load(self) -> None:
         if not os.path.exists(self.store_path):
             return
-        with open(self.store_path, "r") as f:
-            raw = json.load(f)
+        try:
+            with open(self.store_path, "r") as f:
+                raw = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            raise RuntimeError(
+                f"Failed to load job store from '{self.store_path}': {e}"
+            ) from e
         for name, data in raw.items():
             self._records[name] = JobRecord.from_dict(data)
 
     def _save(self) -> None:
-        os.makedirs(os.path.dirname(self.store_path), exist_ok=True)
+        dir_name = os.path.dirname(self.store_path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
         with open(self.store_path, "w") as f:
             json.dump(
                 {name: rec.to_dict() for name, rec in self._records.items()},
