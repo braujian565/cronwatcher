@@ -1,44 +1,44 @@
 # cronwatcher example configuration
 # Copy to config.yaml and adjust as needed.
 
-store_path: /var/lib/cronwatcher/state.json
+store_path: /var/lib/cronwatcher/jobs.json
 log_level: INFO
-check_interval: 60          # seconds between scheduler ticks
-digest_schedule: "0 8 * * *" # send daily digest at 08:00 (optional)
+check_interval: 60
 
 alert:
-  email_to: ops@example.com
-  email_from: cronwatcher@example.com
   smtp_host: smtp.example.com
   smtp_port: 587
-  smtp_user: cronwatcher@example.com
+  smtp_user: alerts@example.com
   smtp_password: secret
+  from_addr: alerts@example.com
+  to_addrs:
+    - ops@example.com
+  use_tls: true
 
 jobs:
   - name: backup-db
-    command: /usr/local/bin/backup-db.sh
-    schedule: "0 2 * * *"   # daily at 02:00
+    command: /usr/local/bin/backup_db.sh
+    schedule: "0 2 * * *"
     timeout: 300
-    alert_on_failure: true
-    retry_attempts: 2
-    retry_delay: 30          # seconds between retries
+    retries: 2
+    alert_after: 1
+    tags:
+      - backup
+      - database
 
-  - name: sync-files
-    command: rsync -av /src/ /dst/
-    schedule: "*/15 * * * *" # every 15 minutes
-    timeout: 60
-    alert_on_failure: true
-    retry_attempts: 3
-    retry_delay: 10
-
-  - name: health-check
-    command: curl -sf https://example.com/health
-    schedule: "* * * * *"   # every minute
-    alert_on_failure: true
-    retry_attempts: 1
-    retry_delay: 5
+  - name: send-report
+    command: python /opt/reports/send.py
+    schedule: "0 8 * * 1"
+    timeout: 120
+    retries: 0
+    alert_after: 1
+    tags:
+      - reports
+      - weekly
 
   - name: cleanup-tmp
     command: find /tmp -mtime +7 -delete
-    schedule: "0 3 * * 0"   # weekly on Sunday at 03:00
-    alert_on_failure: false
+    schedule: "30 3 * * *"
+    timeout: 60
+    tags:
+      - maintenance
