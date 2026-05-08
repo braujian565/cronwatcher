@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -66,7 +67,6 @@ def test_dispatch_multiple_channels(record, alert_cfg):
 
 
 def test_dispatch_unknown_channel_logs_warning(record, alert_cfg, caplog):
-    import logging
     with caplog.at_level(logging.WARNING, logger="cronwatcher.notifier"):
         notifier.dispatch(record, alert_cfg, channels=["nonexistent"])
     assert "nonexistent" in caplog.text
@@ -80,3 +80,16 @@ def test_dispatch_handler_exception_does_not_propagate(record, alert_cfg):
     # Should not raise
     notifier.dispatch(record, alert_cfg, channels=["broken"])
     del notifier._REGISTRY["broken"]
+
+
+def test_dispatch_handler_exception_logs_error(record, alert_cfg, caplog):
+    """Verify that a handler exception is logged at ERROR level with context."""
+    @notifier.register("error_prone")
+    def _error_prone(rec, cfg):  # noqa: ARG001
+        raise ValueError("unexpected value")
+
+    with caplog.at_level(logging.ERROR, logger="cronwatcher.notifier"):
+        notifier.dispatch(record, alert_cfg, channels=["error_prone"])
+
+    assert "error_prone" in caplog.text
+    del notifier._REGISTRY["error_prone"]
