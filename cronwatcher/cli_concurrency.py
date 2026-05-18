@@ -36,13 +36,20 @@ def cmd_concurrency_list(args: argparse.Namespace) -> None:
 
 def cmd_concurrency_set(args: argparse.Namespace) -> None:
     mgr = _get_manager(args)
+    if args.max < 1:
+        print(f"Error: max must be a positive integer, got {args.max}.")
+        return
     mgr.set_limit(args.name, args.max)
     print(f"Concurrency limit '{args.name}' set to {args.max}.")
 
 
 def cmd_concurrency_release(args: argparse.Namespace) -> None:
     mgr = _get_manager(args)
-    mgr.release(args.name, args.job)
+    try:
+        mgr.release(args.name, args.job)
+    except KeyError as exc:
+        print(f"Error: {exc}")
+        return
     print(f"Released slot for job '{args.job}' in limit '{args.name}'.")
 
 
@@ -80,6 +87,4 @@ def register_concurrency_subcommand(subparsers: argparse._SubParsersAction) -> N
     p_rel.add_argument("job", help="Job name to release")
 
     p_rm = sub.add_parser("remove", help="Remove a limit entirely")
-    p_rm.add_argument("name", help="Limit bucket name")
-
-    p.set_defaults(func=_dispatch)
+    p_rm.add_argument("name", help
