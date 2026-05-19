@@ -31,6 +31,10 @@ class DigestReport:
             f"{self.never_run_count} never run"
         )
 
+    def has_issues(self) -> bool:
+        """Return True if any jobs are failing or have never run."""
+        return self.failing_count > 0 or self.never_run_count > 0
+
 
 def build_digest(config: AppConfig, store: JobStore) -> DigestReport:
     """Build a digest report from the current job store state."""
