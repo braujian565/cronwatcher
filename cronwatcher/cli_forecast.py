@@ -1,60 +1,62 @@
-"""CLI sub-command: forecast — show upcoming job run times."""
+"""CLI subcommand: forecast — show predicted next-run times for all jobs."""
+
 from __future__ import annotations
 
 import argparse
 import sys
 from datetime import datetime
 
-from cronwatcher.config import load_config
+from cronwatcher.config import AppConfig
 from cronwatcher.forecast import compute_forecast, format_forecast_table
 
 
 def cmd_forecast(args: argparse.Namespace) -> None:
+    """Print a table of predicted next-run times."""
     try:
-        app_config = load_config(args.config)
+        app_config = AppConfig.load(args.config)
     except FileNotFoundError:
-        print(f"Config file not found: {args.config}", file=sys.stderr)
+        print(f"[error] Config file not found: {args.config}", file=sys.stderr)
         sys.exit(1)
 
-    after: datetime | None = None
-    if args.at:
-        try:
-            after = datetime.strptime(args.at, "%Y-%m-%dT%H:%M")
-        except ValueError:
-            print("--at must be in ISO format: YYYY-MM-DDTHH:MM", file=sys.stderr)
-            sys.exit(1)
+    horizon_hours: int = getattr(args, "horizon", 24)
+    now = datetime.now()
 
-    entries = compute_forecast(
-        app_config,
-        after=after,
-        horizon_minutes=args.horizon,
-    )
+    entries = compute_forecast(app_config, now=now, horizon_hours=horizon_hours)
 
-    if args.job:
-        entries = [e for e in entries if e.job_name == args.job]
+    if not entries:
+        print("No jobs are scheduled to run within the next "
+              f"{horizon_hours} hour(s).")
+        return
+
+    tag_filter: str | None = getattr(args, "tag", None)
+    if tag_filter:
+        entries = [e for e in entries if tag_filter in (e.job.tags or [])]
+        if not entries:
+            print(f"No jobs with tag '{tag_filter}' found in forecast.")
+            return
 
     print(format_forecast_table(entries))
 
 
-def register_forecast_subcommand(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
-    p = subparsers.add_parser("forecast", help="Show upcoming scheduled run times")
-    p.add_argument(
+def register_forecast_subcommand(
+    subparsers: argparse._SubParsersAction,  # type: ignore[type-arg]
+) -> None:
+    """Attach the *forecast* subcommand to an existing argument parser."""
+    parser: argparse.ArgumentParser = subparsers.add_parser(
+        "forecast",
+        help="Show predicted next-run times for scheduled jobs.",
+    )
+    parser.add_argument(
         "--horizon",
         type=int,
-        default=1440,
-        metavar="MINUTES",
-        help="How many minutes ahead to scan (default: 1440 = 24 h)",
+        default=24,
+        metavar="HOURS",
+        help="Look-ahead window in hours (default: 24).",
     )
-    p.add_argument(
-        "--at",
+    parser.add_argument(
+        "--tag",
         default=None,
-        metavar="YYYY-MM-DDTHH:MM",
-        help="Treat this timestamp as 'now' (useful for testing)",
+        metavar="TAG",
+        help="Filter output to jobs carrying this tag.",
     )
-    p.add_argument(
-        "--job",
-        default=None,
-        metavar="JOB_NAME",
-        help="Filter output to a single job",
-    )
-    p.set_defaults(func=cmd_forecast)
+    parser.set_defaults(func=cmd_forecast)
